@@ -20,6 +20,10 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from googleplaces import GooglePlaces, types
 from .serializers import *
+
+from rest_framework.decorators import api_view, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
+import os
 # Create your views here.
 
 
@@ -121,6 +125,19 @@ def verify_otp(request):
         return JsonResponse({"success": False, "message": "No OTP found"}, status=status.HTTP_404_NOT_FOUND)
     
 
+
+
+@api_view(['POST'])
+def generate_card(request):
+    template_src = 'card.html'
+    data = {}
+    random_integer = random.randint(1, 100)
+    temp, file_path = render_to_pdf(template_src, data, f'letter_head_{random_integer}')
+    # user = BaseUser.objects.filter(mobile_no=mobile_no).last()
+    # print('user::',user)
+    image_url = "{}/static/".format(settings.CURRENT_HOST)+file_path
+
+    return JsonResponse({"msg":"Done","file_path":image_url})
 
 
 
@@ -296,3 +313,215 @@ def user_registration(request):
 
 
 
+
+@api_view(['POST'])
+@parser_classes((MultiPartParser, FormParser,))
+def table_ocr(request):
+    try:
+        image_file = request.FILES.get('image')
+        if not image_file:
+            return JsonResponse({"error": "No image file provided"}, status=400)
+
+        # Define the path to save the uploaded image
+        image_path = os.path.join('media', 'images', image_file.name)
+
+        # Save the uploaded image
+        with open(image_path, 'wb') as f:
+            for chunk in image_file.chunks():
+                f.write(chunk)
+
+        # Load the layout detection model
+        model = lp.PaddleDetectionLayoutModel(
+            config_path="lp://PubLayNet/ppyolov2_r50vd_dcn_365e_publaynet/config",
+            threshold=0.5,
+            label_map={0: "Text", 1: "Title", 2: "List", 3: "Table", 4: "Figure"},
+            enforce_cpu=False,
+            enable_mkldnn=True
+        )
+
+        # Perform layout detection
+        image = cv2.imread(image_path)
+        image = image[..., ::-1]
+        layout = model.detect(image)
+
+        y_1 = None  # Initialize y_1 and y_2
+        y_2 = None
+        for l in layout._blocks:
+            if l.type == 'Table':
+                x_1 = int(l.block.x_1)
+                y_1 = int(l.block.y_1)
+                x_2 = int(l.block.x_2)
+                y_2 = int(l.block.y_2)
+                break
+
+        if y_1 is None or y_2 is None:
+            return JsonResponse({"error": "Table coordinates not found"})
+
+        total_area = image[y_1:y_2, x_1:x_2]
+
+        ocr = PaddleOCR(lang='en')
+        output = ocr.ocr(total_area)
+
+        data = []
+
+        # Iterate over each OCR result
+        for out in output[0]:
+            # Extract relevant information
+            text = out[1][0]
+            confidence = out[1][1]
+            bbox = out[0]
+            x_min, y_min, x_max, y_max = bbox
+
+            # Compute the row-wise sum of bbox coordinates
+            bbox_sum = sum(x_min) + sum(y_min) + sum(x_max) + sum(y_max)
+
+            # Append the information to the data list
+            data.append([text, bbox_sum])
+
+        # Create a pandas DataFrame from the data list
+        df = pd.DataFrame(data, columns=['Text', 'BboxSum'])
+
+        new_rows = []
+
+        for index, row in df.iterrows():
+            if ':' in row['Text']:
+                text_parts = row['Text'].split(':', 1)
+                text1 = text_parts[0].strip()
+                text2 = text_parts[1].strip()
+                new_rows.append([text1, row['BboxSum']])
+                new_rows.append([text2, row['BboxSum']])
+            elif row['Text'].strip() != '':
+                new_rows.append([row['Text'], row['BboxSum']])
+
+        new_df = pd.DataFrame(new_rows, columns=['Text', 'BboxSum'])
+
+        # Remove rows with only BboxSum and no text
+        new_df = new_df[new_df['Text'] != '']
+
+        # Select only the desired columns
+        new_df = new_df[['Text', 'BboxSum']]
+
+        # Define the list of keys to search for
+        keys_to_find = [
+            'Patient Name',
+            'Result',
+            'Normal Range',
+            'Units'
+        ]
+
+        result = {}
+        key_flag = False
+        previous_key = ''
+
+        # Iterate over each row in the DataFrame
+        for index, row in new_df.iterrows():
+            # Convert the text to lowercase for case-insensitive comparison
+            text = row['Text'].lower()
+
+            # Check if the text matches any of the keys
+            if text in [key.lower() for key in keys_to_find]:
+                # Set the flag to indicate a key has been found
+                key_flag = True
+
+                # Set the current text as the previous key
+                previous_key = row['Text']
+            elif key_flag:
+                # If the flag is True, set the previous key as a key in the result dictionary
+                # and the current text as its value
+                if previous_key not in result:
+                    result[previous_key] = [row['Text']]
+                else:
+                    result[previous_key].append(row['Text'])
+
+                # Reset the flag and previous key
+                key_flag = False
+                previous_key = ''
+
+        # Convert the result dictionary to JSON
+        result_json = json.dumps(result)
+
+        # Delete records used as keys or values
+        keys_to_delete = list(result.keys()) + sum(result.values(), [])
+        new_df = new_df[~new_df['Text'].isin(keys_to_delete)]
+
+        # Initialize the dictionary
+        key_value_pairs = {}
+
+        # Set the initial key and previous_bbox_sum
+        key = new_df['Text'].iloc[0]
+        previous_bbox_sum = new_df['BboxSum'].iloc[0]
+
+        # Iterate over the 'BboxSum' column
+        for bbox_sum in new_df['BboxSum']:
+            # Compare the current bbox_sum with the previous one
+            if bbox_sum > previous_bbox_sum:
+                # Get the corresponding text value
+                text = new_df.loc[new_df['BboxSum'] == bbox_sum, 'Text'].values[0]
+                # Exclude the duplicate values
+                if text != key:
+                    # Append the value to the existing key
+                    if key in key_value_pairs:
+                        key_value_pairs[key].append(text)
+                    else:
+                        # Check if the key is in the exclusion list
+                        if key not in keys_to_find:
+                            key_value_pairs[key] = [text]
+            else:
+                # Create a new key
+                key = new_df.loc[new_df['BboxSum'] == bbox_sum, 'Text'].values[0]
+                # Initialize the value as a list with the current text
+                # Check if the key is in the exclusion list
+                if key not in keys_to_find:
+                    key_value_pairs[key] = [key]
+
+            # Update the previous_bbox_sum
+            previous_bbox_sum = bbox_sum
+
+        # Convert the key-value pairs to JSON
+        key_value_json = json.dumps(key_value_pairs)
+
+        # Merge the two JSON objects into one
+        merged_json = {**json.loads(result_json), **json.loads(key_value_json)}
+
+        # Save the processed data and image to the database
+       
+        # processed_image = ProcessedImage(image=image_file, processed_data=merged_json)
+        # processed_image.save()
+
+        # Remove the uploaded image
+        os.remove(image_path)
+
+        return JsonResponse(merged_json)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+
+
+@api_view(['POST'])
+def upload_doc(request):
+    user_id = request.query_params.get('id')
+    user = BaseUser.objects.filter(id=user_id).last()
+    Document.objects.create(user=user,file_name=request.data.get('file_name'),hash_value=request.data.get('hash_value'))
+    return JsonResponse({"status":"success","message":"Document uploaded successfully"})
+
+@api_view(['GET'])
+def get_doc(request):
+    user_id = request.query_params.get('id')
+    user = BaseUser.objects.filter(id=user_id).last()
+    doc = Document.objects.filter(user=user)
+    data = DocumentSerializer(doc,many=True).data
+    return JsonResponse({"status":"success","data":data})
+
+
+@api_view(['POST'])
+def upload_prescription(request):
+    data = request.data
+    template_src = 'prescription.html'
+    random_integer = random.randint(1, 100)
+    temp, file_path = render_to_pdf(template_src, data, f'letter_head_{random_integer}')
+    # user = BaseUser.objects.filter(mobile_no=mobile_no).last()
+    # print('user::',user)
+    image_url = "{}/static/".format(settings.CURRENT_HOST)+file_path
+
+    return JsonResponse({"msg":"Done","file_path":image_url})

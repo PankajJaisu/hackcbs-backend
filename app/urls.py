@@ -10,6 +10,9 @@ path('generate-otp/',views.generate_otp),
 path('verify-otp/',views.verify_otp),
 path('user-registration/',views.user_registration),
 path('generate-card/',views.generate_card),
-path('upload-prescription/',views.upload_prescription),
+path('upload-prescription/',views.upload_pre),
+path('get-doc/',views.get_doc),
+path('upload-doc/',views.upload_doc),
+path('table-ocr/',views.table_ocr),
 
 ]
