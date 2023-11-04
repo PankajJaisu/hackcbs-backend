@@ -125,3 +125,32 @@ def verify_otp(request):
 
 
 
+
+
+def render_to_pdf(template_src, context, file_name="invoice"):
+    Path("static/prescription/").mkdir(parents=True, exist_ok=True)
+    file_path = f'prescription/{file_name}_{str(random.randint(100000, 9999999))}.pdf'
+    print("file_path::",file_path)
+    template = get_template(template_src)
+    print("template::",template)
+    html = template.render(context)
+    options = {
+        'page-height': '270mm',
+        'page-width': '185mm',
+    }
+
+    pdf = pdfkit.from_string(html, r'static/' + file_path, options=options)
+    return pdf,file_path
+
+# @csrf_exempt
+@api_view(['POST'])
+def generate_prescription(request):
+    template_src = 'prescription.html'
+    data = request.POST   
+    
+    random_integer = random.randint(1, 100)
+    temp, file_path = render_to_pdf(template_src, data, f'prescription_{random_integer}')
+    user = BaseUser.objects.filter(mobile_no=data.get('mobile_no')).last()
+    image_url = "{}/static/".format(settings.CURRENT_HOST)+file_path
+    
+    return JsonResponse({"msg":"Done","file_path":image_url})
