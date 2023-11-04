@@ -205,114 +205,6 @@ def generate_prescription(request):
     return JsonResponse({"msg":"Done","file_path":image_url})
 
 
-@api_view(['POST'])
-def user_registration(request):
-    mobile_no = request.data.get('mobile_no')
-    user_type = request.data.get('user_type')
-    first_name = request.data.get('first_name', None)
-    last_name = request.data.get('last_name', None)
-    email = request.data.get('email', None)
-    base_user_queryset = BaseUser.objects.filter(mobile_no=mobile_no)
-    print(request.data)
-    if base_user_queryset.exists():
-        base_user = base_user_queryset.last()
-        base_user.first_name = first_name
-        base_user.last_name = last_name
-        base_user.email = email
-        base_user.user_type = user_type
-        profile_picture = request.FILES.get('profile_pic')
-        print("profile_picture::",profile_picture)
-        if profile_picture:
-            print(profile_picture)
-            base_user.profile_picture = profile_picture
-            base_user.save()
-            print("base_user::",base_user.profile_picture)
-            # Use the .url property to get the image URL
-            base_user.profile_picture_url = base_user.profile_picture.url
-        base_user.save()
-                
-        
-        if base_user.user_type == 'doctor':
-            # try:
-                print("on 304")
-                template_src = 'letter_head.html'
-                data = request.data
-                print(request.FILES)
-                
-                random_integer = random.randint(1, 100)
-                temp, file_path = render_to_pdf(template_src, data, f'letter_head_{random_integer}')
-                user = BaseUser.objects.filter(mobile_no=mobile_no).last()
-                print('user::',user)
-                image_url = "{}/static/".format(settings.CURRENT_HOST)+file_path
-                print("mobile_no::",mobile_no)
-                doctor, created = Doctor.objects.get_or_create(user=user)
-                print("doctor::",doctor)
-                doctor.hospital_affiliation = request.data.get('hospital_affiliation', None)
-                doctor.license_number = request.data.get('license_number', None)
-                doctor.years_of_experience = request.data.get('years_of_experience', None)
-                doctor.letter_head_url = image_url
-                doctor.save()
-                user_details = {
-                    'id': doctor.user.id,
-                    'first_name': user.first_name,
-                    'last_name': user.last_name,
-                    'email': user.email,
-                    # 'profile_url': settings.CURRENT_HOST + "" + doctor.user.profile_picture_url,
-                    'hospital_affiliation': doctor.hospital_affiliation,
-                    'license_number': doctor.license_number,
-                    'years_of_experience': doctor.years_of_experience,
-                    'letter_head_url': doctor.letter_head_url,
-                }
-
-                return JsonResponse(user_details)
-
-            # except Exception as e:
-            #     return JsonResponse({"error": str(e)})
-        elif base_user.user_type == 'patient':
-            # try:
-                data = request.data
-                template_src = 'prescription.html'
-                patient, created = Patient.objects.get_or_create(user=base_user)
-                patient.allergies = request.data.get('allergies', None)
-                patient.current_medications = request.data.get('current_medications', None)
-                patient.medical_conditions = request.data.get('medical_conditions', None)
-                random_integer = random.randint(1, 100)
-                file_name = f'prescription_{random_integer}'
-                temp, file_path = render_to_pdf(template_src, data, file_name)
-                user = BaseUser.objects.filter(mobile_no=mobile_no).last()
-                print('user::',user)
-                # image_url = "{}/static/".format(settings.CURRENT_HOST)+file_path
-
-                doc = Document.objects.create(user=user,file_url=image_url,file_name=file_name)
-                patient.save()
-                user_details = {
-                    'id': patient.user.id,
-                    'first_name': patient.user.first_name,
-                    'last_name': patient.user.last_name,
-                    'email': patient.user.email,
-                    'allergies': patient.allergies,
-                    # 'profile_url': settings.CURRENT_HOST + "" + patient.user.profile_picture_url,
-                    'current_medications': patient.current_medications,
-                    'medical_conditions': patient.medical_conditions,
-                    'prescription_url':doc.file_url,
-                }
-
-                if created:
-                    return JsonResponse({'message': 'Patient registered successfully', 'user': user_details, "status": "success"},
-                                        status=status.HTTP_201_CREATED)
-                else:
-                    return JsonResponse({'message': 'Patient already exists', 'user': user_details, "status": "success"},
-                                        status=status.HTTP_409_CONFLICT)
-
-                # except Exception as e:
-                #     return JsonResponse({"error": str(e)})
-
-
-    else:
-        return JsonResponse({'message': 'User Not Found'}, status=status.HTTP_404_NOT_FOUND)        
-
-
-
 
 @api_view(['POST'])
 @parser_classes((MultiPartParser, FormParser,))
@@ -520,8 +412,116 @@ def upload_prescription(request):
     template_src = 'prescription.html'
     random_integer = random.randint(1, 100)
     temp, file_path = render_to_pdf(template_src, data, f'letter_head_{random_integer}')
-    # user = BaseUser.objects.filter(mobile_no=mobile_no).last()
-    # print('user::',user)
     image_url = "{}/static/".format(settings.CURRENT_HOST)+file_path
 
     return JsonResponse({"msg":"Done","file_path":image_url})
+
+
+
+@api_view(['POST'])
+def user_registration(request):
+    mobile_no = request.data.get('mobile_no')
+    user_type = request.data.get('user_type')
+    first_name = request.data.get('first_name', None)
+    last_name = request.data.get('last_name', None)
+    email = request.data.get('email', None)
+    base_user_queryset = BaseUser.objects.filter(mobile_no=mobile_no)
+    print(request.data)
+    if base_user_queryset.exists():
+        base_user = base_user_queryset.last()
+        base_user.first_name = first_name
+        base_user.last_name = last_name
+        base_user.email = email
+        base_user.user_type = user_type
+        profile_picture = request.FILES.get('profile_pic')
+        print("profile_picture::",profile_picture)
+        if profile_picture:
+            print(profile_picture)
+            base_user.profile_picture = profile_picture
+            base_user.save()
+            print("base_user::",base_user.profile_picture)
+            # Use the .url property to get the image URL
+            base_user.profile_picture_url = base_user.profile_picture.url
+        base_user.save()
+                
+        
+        if base_user.user_type == 'doctor':
+            # try:
+                print("on 304")
+                template_src = 'letter_head.html'
+                data = request.data
+                print(request.FILES)
+                
+                random_integer = random.randint(1, 100)
+                temp, file_path = render_to_pdf(template_src, data, f'letter_head_{random_integer}')
+                user = BaseUser.objects.filter(mobile_no=mobile_no).last()
+                print('user::',user)
+                image_url = "{}/static/".format(settings.CURRENT_HOST)+file_path
+                print("mobile_no::",mobile_no)
+                doctor, created = Doctor.objects.get_or_create(user=user)
+                print("doctor::",doctor)
+                doctor.hospital_affiliation = request.data.get('hospital_affiliation', None)
+                doctor.license_number = request.data.get('license_number', None)
+                doctor.years_of_experience = request.data.get('years_of_experience', None)
+                doctor.letter_head_url = image_url
+                doctor.save()
+                user_details = {
+                    'id': doctor.user.id,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'email': user.email,
+                    # 'profile_url': settings.CURRENT_HOST + "" + doctor.user.profile_picture_url,
+                    'hospital_affiliation': doctor.hospital_affiliation,
+                    'license_number': doctor.license_number,
+                    'years_of_experience': doctor.years_of_experience,
+                    'letter_head_url': doctor.letter_head_url,
+                }
+
+                return JsonResponse(user_details)
+
+         
+        elif base_user.user_type == 'patient':
+            # try:
+                data = request.data
+                template_src = 'prescription.html'
+                patient, created = Patient.objects.get_or_create(user=base_user)
+                patient.allergies = request.data.get('allergies', None)
+                patient.current_medications = request.data.get('current_medications', None)
+                patient.medical_conditions = request.data.get('medical_conditions', None)
+                random_integer = random.randint(1, 100)
+                file_name = f'prescription_{random_integer}'
+                temp, file_path = render_to_pdf(template_src, data, file_name)
+                user = BaseUser.objects.filter(mobile_no=mobile_no).last()
+                print('user::',user)
+                image_url = "{}/static/".format(settings.CURRENT_HOST)+file_path
+
+                doc = Document.objects.create(user=user,download_image_url=image_url,file_name=file_name)
+                patient.save()
+                user_details = {
+                    'id': patient.user.id,
+                    'first_name': patient.user.first_name,
+                    'last_name': patient.user.last_name,
+                    'email': patient.user.email,
+                    'allergies': patient.allergies,
+                    # 'profile_url': settings.CURRENT_HOST + "" + patient.user.profile_picture_url,
+                    'current_medications': patient.current_medications,
+                    'medical_conditions': patient.medical_conditions,
+                    'prescription_url':doc.download_image_url,
+                }
+
+                if created:
+                    return JsonResponse({'message': 'Patient registered successfully', 'user': user_details, "status": "success"},
+                                        status=status.HTTP_201_CREATED)
+                else:
+                    return JsonResponse({'message': 'Patient already exists', 'user': user_details, "status": "success"},
+                                        status=status.HTTP_409_CONFLICT)
+
+                # except Exception as e:
+                #     return JsonResponse({"error": str(e)})
+
+
+    else:
+        return JsonResponse({'message': 'User Not Found'}, status=status.HTTP_404_NOT_FOUND)        
+
+
+
