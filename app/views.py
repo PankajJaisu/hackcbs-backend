@@ -132,7 +132,7 @@ def generate_card(request):
     template_src = 'card.html'
     data = {}
     random_integer = random.randint(1, 100)
-    temp, file_path = render_to_pdf(template_src, data, f'letter_head_{random_integer}')
+    temp, file_path = render_to_pdf_card(template_src, data, f'letter_head_{random_integer}')
     # user = BaseUser.objects.filter(mobile_no=mobile_no).last()
     # print('user::',user)
     image_url = "{}/static/".format(settings.CURRENT_HOST)+file_path
@@ -158,6 +158,28 @@ def render_to_pdf(template_src, context, file_name="invoice"):
 
     pdf = pdfkit.from_string(html, r'static/' + file_path, options=options)
     return pdf,file_path
+
+
+
+def render_to_pdf_card(template_src, context, file_name="invoice"):
+    Path("static/health_cards/").mkdir(parents=True, exist_ok=True)
+    file_path = f'health_cards/{file_name}_{str(random.randint(100000, 9999999))}.pdf'
+    print("file_path::", file_path)
+    template = get_template(template_src)
+    print("template::", template)
+    html = template.render(context)
+    
+    options = {
+        'page-height': '53.98mm',  
+        'page-width': '82.60mm',   # Set the page width to match credit card dimensions
+        'margin-top': '0mm',       # Remove top margin
+        'margin-right': '0mm',     # Remove right margin
+        'margin-bottom': '0mm',    # Remove bottom margin
+        'margin-left': '0mm',      # Remove left margin
+    }
+    
+    pdfkit.from_string(html, f'static/{file_path}', options=options)
+    return file_path
 
 # @csrf_exempt
 @api_view(['POST'])
